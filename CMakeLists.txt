@@ -52,6 +52,8 @@ if(BUILD_TESTING)
     add_executable(realperf_tests
         tests/LiteralStringExternalTestData.cpp
         tests/LiteralStringTest.cpp
+        tests/RingBufferTest.cpp
+        tests/TickClockTest.cpp
         tests/perf_tests.cpp
     )
 

@@ -20,7 +20,7 @@ public:
     }
 
     template <std::size_t Size>
-    static consteval LiteralString from_literal(const char (&literal)[Size])
+    static consteval LiteralString fromLiteral(const char (&literal)[Size])
     {
         return LiteralString {literal};
     }
@@ -68,9 +68,9 @@ static_assert(sizeof(LiteralString) == sizeof(std::uint32_t));
 
 struct alignas(16) LiteralStringEntry {
     template <std::size_t Size>
-    consteval explicit LiteralStringEntry(const char (&literal_text)[Size])
-        : literal(LiteralString::from_literal(literal_text))
-        , text(literal_text, Size - 1u)
+    consteval explicit LiteralStringEntry(const char (&literalText)[Size])
+        : literal(LiteralString::fromLiteral(literalText))
+        , text(literalText, Size - 1u)
     {
     }
 
