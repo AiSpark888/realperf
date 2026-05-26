@@ -55,6 +55,7 @@ target_link_libraries(realperf
 include(CTest)
 if(BUILD_TESTING)
     add_executable(realperf_tests
+        tests/CheckPointTest.cpp
         tests/DoubleMapBufferTest.cpp
         tests/LiteralStringExternalTestData.cpp
         tests/LiteralStringTest.cpp

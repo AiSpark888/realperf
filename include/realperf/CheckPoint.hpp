@@ -1,10 +1,12 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
+#include <stdexcept>
 #include "LiteralString.hpp"
 #include "TickTimer.hpp"
 #include <string>
-#include "DoubleMapBuffer.hpp"
+#include <x86intrin.h>
 
 namespace realperf {
 
@@ -110,15 +112,15 @@ struct Recorder
         }
     }
 
-    void start(LiteralString where)
+    void start(LiteralString where, Tick tick = TickTimer::now())
     {
         commit(); //always commit previous recording before starting a new one
-        add(TickTimer::now(), where, CheckPoint::Type::CP_Start);
+        add(tick, where, CheckPoint::Type::CP_Start);
     }
 
-    void end(LiteralString where)
+    void end(LiteralString where, Tick tick = TickTimer::now())
     {
-        add(TickTimer::now(), where, CheckPoint::Type::CP_End);
+        add(tick, where, CheckPoint::Type::CP_End);
         commit();
     }
 

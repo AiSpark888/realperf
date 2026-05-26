@@ -1,27 +1,150 @@
-#include <catch2/catch_test_macros.hpp>
 #include "realperf/CheckPoint.hpp"
+#include "realperf/RingBuffer.hpp"
 
-TEST_CASE("Recorder can add checkpoints and commit them")
+#include <catch2/catch_test_macros.hpp>
+
+#include <array>
+#include <cstddef>
+#include <stdexcept>
+
+#include <unistd.h>
+
+using realperf::LiteralString;
+
+namespace {
+
+std::size_t checkpointCapacity()
 {
-    realperf::CheckPoint buffer[8];
-    realperf::Recorder recorder;
-    recorder.init(buffer, buffer + 8);
+    const long value = ::sysconf(_SC_PAGESIZE);
+    REQUIRE(value > 0);
+    return static_cast<std::size_t>(value) / sizeof(realperf::CheckPoint);
+}
 
-    recorder.add("first", realperf::CheckPoint::Type::CP_Normal, realperf::Category::CAT_MD);
-    recorder.add("second", realperf::CheckPoint::Type::CP_Normal, realperf::Category::CAT_Order);
-    recorder.add("third", realperf::CheckPoint::Type::CP_Normal, realperf::Category::CAT_Strategy);
+} // namespace
+
+TEST_CASE("Recorder requires double-mapped checkpoint storage")
+{
+    std::array<realperf::CheckPoint, 10> storage {};
+    realperf::Recorder recorder;
+
+    CHECK_THROWS_AS(
+        recorder.init(storage.data(), storage.data() + 8u),
+        std::runtime_error);
+}
+
+TEST_CASE("Recorder adds checkpoints and tracks categories")
+{
+    realperf::RingBuffer<realperf::CheckPoint> buffer(checkpointCapacity());
+    realperf::Recorder recorder;
+    recorder.init(buffer.data(), buffer.data() + buffer.capacity(), 1u);
+
+    recorder.add(10u, "first", realperf::CheckPoint::Type::CP_Start, realperf::Category::CAT_MD);
+    recorder.add(25u, "second", realperf::CheckPoint::Type::CP_Normal, realperf::Category::CAT_Order);
+    recorder.add(40u, "third", realperf::CheckPoint::Type::CP_End, realperf::Category::CAT_Strategy);
 
     CHECK(recorder.has(realperf::Category::CAT_MD));
     CHECK(recorder.has(realperf::Category::CAT_Order));
     CHECK(recorder.has(realperf::Category::CAT_Strategy));
     CHECK_FALSE(recorder.has(realperf::Category::CAT_Default));
+    CHECK(recorder.totalTicks() == 30u);
 
     recorder.commit();
 
-    CHECK(buffer[0].where_ == "first");
-    CHECK(buffer[0].category_ == realperf::Category::CAT_MD);
-    CHECK(buffer[1].where_ == "second");
-    CHECK(buffer[1].category_ == realperf::Category::CAT_Order);
-    CHECK(buffer[2].where_ == "third");
-    CHECK(buffer[2].category_ == realperf::Category::CAT_Strategy);
+    CHECK(buffer.data()[0].where_ == LiteralString("first"));
+    CHECK(buffer.data()[0].type_ == realperf::CheckPoint::Type::CP_Start);
+    CHECK(buffer.data()[0].category_ == realperf::Category::CAT_MD);
+    CHECK(buffer.data()[0].tick_ == 10u);
+
+    CHECK(buffer.data()[1].where_ == LiteralString("second"));
+    CHECK(buffer.data()[1].type_ == realperf::CheckPoint::Type::CP_Normal);
+    CHECK(buffer.data()[1].category_ == realperf::Category::CAT_Order);
+    CHECK(buffer.data()[1].tick_ == 25u);
+
+    CHECK(buffer.data()[2].where_ == LiteralString("third"));
+    CHECK(buffer.data()[2].type_ == realperf::CheckPoint::Type::CP_End);
+    CHECK(buffer.data()[2].category_ == realperf::Category::CAT_Strategy);
+    CHECK(buffer.data()[2].tick_ == 40u);
+}
+
+TEST_CASE("Recorder rollback discards pending checkpoints")
+{
+    realperf::RingBuffer<realperf::CheckPoint> buffer(checkpointCapacity());
+    realperf::Recorder recorder;
+    recorder.init(buffer.data(), buffer.data() + buffer.capacity(), 1u);
+
+    recorder.add(10u, "discarded", realperf::CheckPoint::Type::CP_Normal, realperf::Category::CAT_MD);
+    REQUIRE(recorder.has(realperf::Category::CAT_MD));
+
+    recorder.rollback();
+
+    CHECK_FALSE(recorder.has(realperf::Category::CAT_MD));
+
+    recorder.add(20u, "kept", realperf::CheckPoint::Type::CP_Normal, realperf::Category::CAT_Order);
+    recorder.commit();
+
+    CHECK(buffer.data()[0].where_ == LiteralString("kept"));
+    CHECK(buffer.data()[0].category_ == realperf::Category::CAT_Order);
+    CHECK(buffer.data()[0].tick_ == 20u);
+}
+
+TEST_CASE("Recorder commitIfHas commits matching categories and rolls back misses")
+{
+    realperf::RingBuffer<realperf::CheckPoint> buffer(checkpointCapacity());
+    realperf::Recorder recorder;
+    recorder.init(buffer.data(), buffer.data() + buffer.capacity(), 1u);
+
+    recorder.add(10u, "first", realperf::CheckPoint::Type::CP_Normal, realperf::Category::CAT_MD);
+    recorder.commitIfHas(realperf::Category::CAT_Order);
+
+    recorder.add(20u, "second", realperf::CheckPoint::Type::CP_Normal, realperf::Category::CAT_Order);
+    recorder.commitIfHas(realperf::Category::CAT_Order);
+
+    recorder.add(30u, "third", realperf::CheckPoint::Type::CP_Normal, realperf::Category::CAT_Strategy);
+    recorder.commit();
+
+    CHECK(buffer.data()[0].where_ == LiteralString("second"));
+    CHECK(buffer.data()[0].category_ == realperf::Category::CAT_Order);
+    CHECK(buffer.data()[1].where_ == LiteralString("third"));
+    CHECK(buffer.data()[1].category_ == realperf::Category::CAT_Strategy);
+}
+
+TEST_CASE("Recorder does not advance committed storage below the minimum count")
+{
+    realperf::RingBuffer<realperf::CheckPoint> buffer(checkpointCapacity());
+    realperf::Recorder recorder;
+    recorder.init(buffer.data(), buffer.data() + buffer.capacity(), 3u);
+
+    recorder.add(10u, "too short 1");
+    recorder.add(20u, "too short 2");
+    recorder.commit();
+
+    recorder.add(30u, "kept 1");
+    recorder.add(40u, "kept 2");
+    recorder.add(50u, "kept 3");
+    recorder.commit();
+
+    CHECK(buffer.data()[0].where_ == LiteralString("kept 1"));
+    CHECK(buffer.data()[1].where_ == LiteralString("kept 2"));
+    CHECK(buffer.data()[2].where_ == LiteralString("kept 3"));
+}
+
+TEST_CASE("Recorder commit wraps at the end of the mirrored buffer")
+{
+    realperf::RingBuffer<realperf::CheckPoint> buffer(checkpointCapacity());
+    realperf::Recorder recorder;
+    recorder.init(buffer.data(), buffer.data() + buffer.capacity(), 1u);
+
+
+    for (std::size_t index = 0; index < buffer.capacity(); ++index) {
+        recorder.add(static_cast<realperf::Tick>(index), "initial");
+        recorder.commit();
+    }
+
+    recorder.add(999u, "wrapped");
+    recorder.commit();
+
+    CHECK(buffer.data()[0].where_ == LiteralString("wrapped"));
+    CHECK(buffer.data()[0].tick_ == 999u);
+    CHECK(buffer.data()[1].where_ == LiteralString("initial"));
+    CHECK(buffer.data()[1].tick_ == 1u);
 }

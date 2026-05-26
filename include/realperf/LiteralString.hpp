@@ -14,7 +14,7 @@ public:
     consteval LiteralString() = default;
 
     template <std::size_t Size>
-    consteval explicit LiteralString(const char (&literal)[Size])
+    consteval LiteralString(const char (&literal)[Size])
         : LiteralString(fingerprint(literal))
     {
     }
