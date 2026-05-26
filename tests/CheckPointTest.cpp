@@ -5,6 +5,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <stdexcept>
 
 #include <unistd.h>
@@ -12,6 +13,17 @@
 using realperf::LiteralString;
 
 namespace {
+
+struct TestEvent {
+    TestEvent(std::uint32_t id, double value)
+        : id_(id)
+        , value_(value)
+    {
+    }
+
+    std::uint32_t id_;
+    double value_;
+};
 
 std::size_t checkpointCapacity()
 {
@@ -214,4 +226,23 @@ TEST_CASE("REALPERF_SCOPE records scope checkpoints on the thread-local recorder
     CHECK(buffer.data()[1].where_ == LiteralString("macro scope"));
     CHECK(buffer.data()[1].type_ == realperf::CheckPoint::Type::CP_ScopeEnd);
     CHECK(buffer.data()[1].category_ == realperf::Category::CAT_MD);
+}
+
+TEST_CASE("REALPERF_EVENT records typed event checkpoints")
+{
+    realperf::RingBuffer<realperf::CheckPoint> buffer(checkpointCapacity());
+    REALPERF_RECORDER_INIT(buffer.data(), buffer.data() + buffer.capacity(), 1u);
+
+    REALPERF_EVENT(TestEvent, 123u, "macro event", 42u, 9.75);
+    REALPERF_RECORD_COMMIT();
+
+    const auto& eventCheckpoint = *reinterpret_cast<const realperf::EventCheckPoint<TestEvent>*>(buffer.data());
+
+    CHECK(eventCheckpoint.type_ == realperf::CheckPoint::Type::CP_Event);
+    CHECK(eventCheckpoint.category_ == realperf::Category::CAT_Event);
+    CHECK(eventCheckpoint.reserved_ == sizeof(TestEvent));
+    CHECK(eventCheckpoint.where_ == LiteralString("macro event"));
+    CHECK(eventCheckpoint.tick_ == 123u);
+    CHECK(eventCheckpoint.id_ == 42u);
+    CHECK(eventCheckpoint.value_ == 9.75);
 }

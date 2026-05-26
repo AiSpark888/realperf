@@ -2,7 +2,10 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <new>
 #include <stdexcept>
+#include <type_traits>
+#include <utility>
 #include "LiteralString.hpp"
 #include "TickTimer.hpp"
 #include <string>
@@ -18,6 +21,7 @@ enum Category : std::uint8_t
     CAT_MD = 1,
     CAT_Order = 2,
     CAT_Strategy = 3,
+    CAT_Event = 4,
 };
 
 struct alignas(16) CheckPoint
@@ -48,6 +52,41 @@ static_assert(offsetof(CheckPoint, reserved_) == 2, "CheckPoint reserved offset 
 static_assert(offsetof(CheckPoint, where_) == 4, "CheckPoint where offset must be 4");
 static_assert(offsetof(CheckPoint, tick_) == 8, "CheckPoint tick offset must be 8");
 
+struct alignas(16) OrderCheckPoint : public CheckPoint
+{
+    OrderCheckPoint(uint16_t symbolID, double price, uint32_t quantity, Tick tick = TickTimer::now())
+    {
+        type_ = Type::CP_Order;
+        category_ = Category::CAT_Order;
+        reserved_ = sizeof(OrderCheckPoint) - sizeof(CheckPoint);
+        where_ = LiteralString::fromLiteral("OrderCheckPoint");
+        tick_ = tick;
+
+        symbolID_ = symbolID;
+        price_ = price;
+        quantity_ = quantity;
+    }
+    double price_;
+    uint32_t quantity_;
+    uint16_t symbolID_;
+    uint16_t reserved2_;
+};
+static_assert(sizeof(OrderCheckPoint) == 32, "OrderCheckPoint size must be 32 bytes");
+
+template <typename Event, typename... Args>
+struct alignas(16) EventCheckPoint : public CheckPoint, public Event
+{
+    template <typename... EventArgs>
+    EventCheckPoint(Tick tick, LiteralString eventName, EventArgs&&... eventArgs): Event(std::forward<EventArgs>(eventArgs)...)
+    {
+        type_ = Type::CP_Event;
+        category_ = Category::CAT_Event;
+        reserved_ = sizeof(Event);
+        where_ = eventName; // this is used to identify Event type, so that we can print it later
+        tick_ = tick;
+    }
+};
+
 struct Recorder
 {
 
@@ -71,6 +110,8 @@ struct Recorder
         mustHaveCategories_ = mustHaveCategories;
 
         // verify that we are using double mapped ring buffer
+        // benefit of using double mapped buffer is that we can write whole record without worrying about wrapping around
+        // we only need to adjust pointer at commit
         end[1].tick_ = 123456789ull;
         if (begin[1].tick_ != 123456789ull)
         {
@@ -152,6 +193,26 @@ struct Recorder
         return add(TickTimer::now(), where, type, category);
     }
 
+    template <typename Event, typename... EventArgs>
+    EventCheckPoint<Event>& addEvent(Tick tick, LiteralString eventName, EventArgs&&... eventArgs)
+    {
+        using StoredCheckPoint = EventCheckPoint<Event>;
+        static_assert(alignof(StoredCheckPoint) <= alignof(CheckPoint), "EventCheckPoint alignment exceeds recorder storage alignment");
+        static_assert(sizeof(StoredCheckPoint) % sizeof(CheckPoint) == 0, "EventCheckPoint size must be a multiple of CheckPoint size");
+        static_assert(std::is_trivially_destructible_v<StoredCheckPoint>, "EventCheckPoint must be trivially destructible");
+
+        auto& cp = *::new (static_cast<void*>(start_ + count_)) StoredCheckPoint(tick, eventName, std::forward<EventArgs>(eventArgs)...);
+        count_ += static_cast<std::uint16_t>(sizeof(StoredCheckPoint) / sizeof(CheckPoint));
+        categories_ |= (1u << static_cast<std::uint8_t>(cp.category_));
+        return cp;
+    }
+
+    template <typename Event, typename... EventArgs>
+    EventCheckPoint<Event>& addEvent(LiteralString eventName, EventArgs&&... eventArgs)
+    {
+        return addEvent<Event>(TickTimer::now(), eventName, std::forward<EventArgs>(eventArgs)...);
+    }
+
 private:
 
     CheckPoint * start_ = nullptr;
@@ -200,6 +261,8 @@ private:
 #define REALPERF_RECORDER (::realperf::Recorder::instance())
 #define REALPERF_RECORDER_INIT(...) (REALPERF_RECORDER.init(__VA_ARGS__))
 #define REALPERF_RECORD(...) (REALPERF_RECORDER.add(__VA_ARGS__))
+#define REALPERF_EVENT(Event, ...) (REALPERF_RECORDER.addEvent<Event>(__VA_ARGS__))
+#define REALPERF_RECORD_EVENT(Event, ...) REALPERF_EVENT(Event, __VA_ARGS__)
 #define REALPERF_RECORD_START(...) (REALPERF_RECORDER.start(__VA_ARGS__))
 #define REALPERF_RECORD_END(...) (REALPERF_RECORDER.end(__VA_ARGS__))
 #define REALPERF_RECORD_COMMIT() (REALPERF_RECORDER.commit())

@@ -11,7 +11,7 @@ namespace realperf {
 
 class LiteralString {
 public:
-    consteval LiteralString() = default;
+    constexpr LiteralString() = default;
 
     template <std::size_t Size>
     consteval LiteralString(const char (&literal)[Size])
