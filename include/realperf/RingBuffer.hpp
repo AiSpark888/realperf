@@ -78,7 +78,7 @@ public:
 
     std::size_t byteSize() const
     {
-        return byte_size_;
+        return byteSize_;
     }
 
     T* data()
@@ -167,7 +167,7 @@ private:
             0);
         if (first == MAP_FAILED) {
             const int saved_errno = errno;
-            ::munmap(reservation, byte_size_ * 2u);
+            ::munmap(reservation, byteSize_ * 2u);
             errno = saved_errno;
             throwSystemError("mmap first view");
         }

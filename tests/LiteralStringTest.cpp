@@ -4,9 +4,11 @@
 
 #include <cstdint>
 #include <sstream>
+#include <string>
 
 REALPERF_LITERAL_STRING(latency_literal, "latency")
 REALPERF_LITERAL_STRING(throughput_literal, "throughput")
+REALPERF_LITERAL_STRING(csv_literal, "latency,\"p99\"")
 
 realperf::LiteralString external_literal_string();
 
@@ -41,4 +43,21 @@ TEST_CASE("LiteralString can be printed through the linked literal string table"
     output << latency;
 
     CHECK(output.str() == "latency");
+}
+
+TEST_CASE("LiteralString can dump the linked literal string table as csv")
+{
+    std::ostringstream output;
+
+    realperf::LiteralString::dumpLiteralStrings(output);
+
+    const std::string csv = output.str();
+    const std::string latency_row = "latency," + std::to_string(latency_literal.value()) + "\n";
+    const std::string external_row = "external," + std::to_string(external_literal_string().value()) + "\n";
+    const std::string direct_row = "latency,\"p99\"," + std::to_string(csv_literal.value()) + "\n";
+
+    CHECK(csv.starts_with("literal,fingerprint\n"));
+    CHECK(csv.find(latency_row) != std::string::npos);
+    CHECK(csv.find(external_row) != std::string::npos);
+    CHECK(csv.find(direct_row) != std::string::npos);
 }

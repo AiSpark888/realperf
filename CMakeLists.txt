@@ -33,6 +33,11 @@ target_include_directories(realperf_lib
         ${PROJECT_SOURCE_DIR}/include
 )
 
+target_compile_options(realperf_lib
+    PUBLIC
+        $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>:-msse4.1>
+)
+
 target_link_libraries(realperf_lib
     PUBLIC
         magic_enum::magic_enum
@@ -50,6 +55,7 @@ target_link_libraries(realperf
 include(CTest)
 if(BUILD_TESTING)
     add_executable(realperf_tests
+        tests/DoubleMapBufferTest.cpp
         tests/LiteralStringExternalTestData.cpp
         tests/LiteralStringTest.cpp
         tests/RingBufferTest.cpp

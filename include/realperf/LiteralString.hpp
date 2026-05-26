@@ -35,6 +35,8 @@ public:
         return value() == 0u;
     }
 
+    static void dumpLiteralStrings(std::ostream& out);
+
     friend constexpr bool operator==(LiteralString left, LiteralString right) = default;
 
     friend constexpr auto operator<=>(LiteralString left, LiteralString right)

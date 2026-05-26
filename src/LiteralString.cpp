@@ -1,6 +1,7 @@
 #include "realperf/LiteralString.hpp"
 
 #include <cstddef>
+#include <string_view>
 
 extern "C" {
 extern const realperf::LiteralStringEntry __start_realperf_literal_strings[] __attribute__((weak));
@@ -30,6 +31,14 @@ std::string_view literal_string_text(LiteralString literal)
     }
 
     return {};
+}
+
+void LiteralString::dumpLiteralStrings(std::ostream& out)
+{
+    out << "literal,fingerprint\n";
+    for (const LiteralStringEntry& entry : literal_string_entries()) {
+        out << entry.text << ',' << entry.literal.value() << '\n';
+    }
 }
 
 std::ostream& operator<<(std::ostream& output, LiteralString literal)

@@ -7,9 +7,11 @@
 
 namespace realperf {
 
-class TickTimer {
+using Tick = std::uint64_t;
+
+class TickTimer 
+{
 public:
-    using Tick = std::uint64_t;
 
     TickTimer() noexcept
         : last_(now())
@@ -32,16 +34,16 @@ public:
         return frequency;
     }
 
-    Tick checkpoint(Tick tsc) noexcept
+    Tick check(Tick tsc) noexcept
     {
         const Tick elapsed = tsc - last_;
         last_ = tsc;
         return elapsed;
     }
 
-    Tick checkpoint() noexcept
+    Tick check() noexcept
     {
-        return checkpoint(now());
+        return check(now());
     }
 
     Tick elapsed(Tick tsc) const noexcept

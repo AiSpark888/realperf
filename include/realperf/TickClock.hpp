@@ -6,23 +6,52 @@
 #include <chrono>
 #include <cstdint>
 #include <limits>
+#include <type_traits>
+#include <utility>
 
 namespace realperf {
 
+// convert TSC ticks to nanoseconds using periodic synchronization with the system clock
 class TickClock {
 public:
-    using Tick = TickTimer::Tick;
     using Clock = std::chrono::system_clock;
     using Duration = std::chrono::nanoseconds;
-    using TimePoint = std::chrono::time_point<Clock, Duration>;
+    using EpochTime = std::chrono::nanoseconds;
+
+    struct alignas(16) SyncPoint
+    {
+        void atomicStore(Tick tick, EpochTime epochTime) noexcept
+        {
+            // store tick and epochTime together atomically using a 128-bit store
+            __m128i value = _mm_set_epi64x(epochTime.count(), tick);
+            _mm_store_si128((__m128i*) this, value);
+        }
+
+        void atomicStore(SyncPoint syncPoint) noexcept
+        {
+            atomicStore(syncPoint.tick, syncPoint.epochTime);
+        }
+
+        SyncPoint atomicLoad() const noexcept
+        {
+            // load tick and epochTime together atomically using a 128-bit load
+            __m128i value = _mm_load_si128((const __m128i*) this);
+            Tick tick = _mm_extract_epi64(value, 0);
+            EpochTime epochTime(_mm_extract_epi64(value, 1));
+            return SyncPoint{tick, epochTime};
+        }
+
+        Tick tick;
+        EpochTime epochTime;
+    };
+    static_assert(sizeof(SyncPoint) == 16, "SyncPoint size must be 16 bytes");
+    static_assert(alignof(SyncPoint) == 16, "SyncPoint alignment must be 16 bytes");
 
     TickClock() noexcept
     {
-        const Sample sample = takeSample();
-        anchorTick_.store(sample.tick, std::memory_order_relaxed);
-        anchorNanoseconds_.store(sample.nanoseconds, std::memory_order_relaxed);
-        lastTick_.store(sample.tick, std::memory_order_relaxed);
-        lastNanoseconds_.store(sample.nanoseconds, std::memory_order_relaxed);
+        const SyncPoint sample = takeSample();
+        anchor_.atomicStore(sample);
+        last_.atomicStore(sample);
         sampleCount_.store(1u, std::memory_order_relaxed);
     }
 
@@ -33,16 +62,14 @@ public:
 
     void sync() noexcept
     {
-        const Sample sample = takeSample();
+        const SyncPoint sample = takeSample();
         const std::uint64_t sampleCount = sampleCount_.load(std::memory_order_acquire);
 
         if (sampleCount > 0u) {
-            const Tick previousTick = lastTick_.load(std::memory_order_relaxed);
-            const std::int64_t previousNanoseconds =
-                lastNanoseconds_.load(std::memory_order_relaxed);
-            const Tick elapsedTicks = sample.tick - previousTick;
+            const SyncPoint previous = last_.atomicLoad();
+            const Tick elapsedTicks = sample.tick - previous.tick;
             const std::int64_t elapsedNanoseconds =
-                sample.nanoseconds - previousNanoseconds;
+                nanoseconds(sample) - nanoseconds(previous);
 
             if (elapsedTicks > 0u && elapsedNanoseconds > 0) {
                 scaleTicks_.store(elapsedTicks, std::memory_order_release);
@@ -50,35 +77,31 @@ public:
             }
         }
 
-        lastTick_.store(sample.tick, std::memory_order_release);
-        lastNanoseconds_.store(sample.nanoseconds, std::memory_order_release);
-        anchorTick_.store(sample.tick, std::memory_order_release);
-        anchorNanoseconds_.store(sample.nanoseconds, std::memory_order_release);
+        last_.atomicStore(sample);
+        anchor_.atomicStore(sample);
         sampleCount_.store(sampleCount + 1u, std::memory_order_release);
     }
 
     [[nodiscard]] std::int64_t toNanoseconds(Tick tick) const
     {
-        const Tick anchorTick = anchorTick_.load(std::memory_order_acquire);
-        const std::int64_t anchorNanoseconds =
-            anchorNanoseconds_.load(std::memory_order_acquire);
+        const SyncPoint anchor = anchor_.atomicLoad();
         const std::uint64_t scaleTicks = scaleTicks_.load(std::memory_order_acquire);
         const std::int64_t scaleNanoseconds =
             scaleNanoseconds_.load(std::memory_order_acquire);
 
         const std::int64_t offset =
             scaleTicks > 0u && scaleNanoseconds > 0
-                ? scaledNanoseconds(tickDelta(tick, anchorTick),
+                ? scaledNanoseconds(tickDelta(tick, anchor.tick),
                     scaleNanoseconds,
                     scaleTicks)
-                : fallbackScaledNanoseconds(tickDelta(tick, anchorTick));
+                : fallbackScaledNanoseconds(tickDelta(tick, anchor.tick));
 
-        return saturatingAdd(anchorNanoseconds, offset);
+        return saturatingAdd(nanoseconds(anchor), offset);
     }
 
-    [[nodiscard]] TimePoint toTimePoint(Tick tick) const
+    [[nodiscard]] EpochTime toEpochTime(Tick tick) const
     {
-        return TimePoint(Duration(toNanoseconds(tick)));
+        return EpochTime(Duration(toNanoseconds(tick)));
     }
 
     [[nodiscard]] std::int64_t nowNanoseconds() const
@@ -86,9 +109,9 @@ public:
         return toNanoseconds(now());
     }
 
-    [[nodiscard]] TimePoint nowTimePoint() const
+    [[nodiscard]] EpochTime nowEpochTime() const
     {
-        return toTimePoint(now());
+        return toEpochTime(now());
     }
 
     [[nodiscard]] std::uint64_t syncCount() const noexcept
@@ -102,21 +125,21 @@ public:
     }
 
 private:
-    struct Sample {
-        Tick tick;
-        std::int64_t nanoseconds;
-    };
-
-    static Sample takeSample() noexcept
+    static SyncPoint takeSample() noexcept
     {
         const Tick tickBefore = TickTimer::now();
         const auto now = Clock::now();
         const Tick tickAfter = TickTimer::now();
 
-        return Sample {
+        return SyncPoint {
             tickBefore + ((tickAfter - tickBefore) / 2u),
-            std::chrono::duration_cast<Duration>(now.time_since_epoch()).count(),
+            std::chrono::duration_cast<Duration>(now.time_since_epoch()),
         };
+    }
+
+    static std::int64_t nanoseconds(SyncPoint syncPoint) noexcept
+    {
+        return syncPoint.epochTime.count();
     }
 
     static __int128 tickDelta(Tick tick, Tick anchorTick) noexcept
@@ -178,10 +201,8 @@ private:
         return static_cast<std::int64_t>(value);
     }
 
-    std::atomic<Tick> anchorTick_ {0u};
-    std::atomic<std::int64_t> anchorNanoseconds_ {0};
-    std::atomic<Tick> lastTick_ {0u};
-    std::atomic<std::int64_t> lastNanoseconds_ {0};
+    SyncPoint anchor_;
+    SyncPoint last_;
     std::atomic<std::uint64_t> scaleTicks_ {0u};
     std::atomic<std::int64_t> scaleNanoseconds_ {0};
     std::atomic<std::uint64_t> sampleCount_ {0u};
