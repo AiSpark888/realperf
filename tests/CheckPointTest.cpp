@@ -175,3 +175,43 @@ TEST_CASE("Recorder macros use the thread-local recorder instance")
     REALPERF_RECORD_ROLLBACK();
     CHECK_FALSE(REALPERF_RECORDER.has(realperf::Category::CAT_MD));
 }
+
+TEST_CASE("CheckPointScope records scope start and end checkpoints")
+{
+    realperf::RingBuffer<realperf::CheckPoint> buffer(checkpointCapacity());
+    realperf::Recorder recorder;
+    recorder.init(buffer.data(), buffer.data() + buffer.capacity(), 1u);
+
+    {
+        realperf::CheckPointScope scope(recorder, "direct scope", realperf::Category::CAT_Strategy);
+    }
+
+    recorder.commit();
+
+    CHECK(buffer.data()[0].where_ == LiteralString("direct scope"));
+    CHECK(buffer.data()[0].type_ == realperf::CheckPoint::Type::CP_ScopeStart);
+    CHECK(buffer.data()[0].category_ == realperf::Category::CAT_Strategy);
+    CHECK(buffer.data()[1].where_ == LiteralString("direct scope"));
+    CHECK(buffer.data()[1].type_ == realperf::CheckPoint::Type::CP_ScopeEnd);
+    CHECK(buffer.data()[1].category_ == realperf::Category::CAT_Strategy);
+    CHECK(buffer.data()[0].tick_ <= buffer.data()[1].tick_);
+}
+
+TEST_CASE("REALPERF_SCOPE records scope checkpoints on the thread-local recorder")
+{
+    realperf::RingBuffer<realperf::CheckPoint> buffer(checkpointCapacity());
+    REALPERF_RECORDER_INIT(buffer.data(), buffer.data() + buffer.capacity(), 1u);
+
+    {
+        REALPERF_SCOPE("macro scope", realperf::Category::CAT_MD);
+    }
+
+    REALPERF_RECORD_COMMIT();
+
+    CHECK(buffer.data()[0].where_ == LiteralString("macro scope"));
+    CHECK(buffer.data()[0].type_ == realperf::CheckPoint::Type::CP_ScopeStart);
+    CHECK(buffer.data()[0].category_ == realperf::Category::CAT_MD);
+    CHECK(buffer.data()[1].where_ == LiteralString("macro scope"));
+    CHECK(buffer.data()[1].type_ == realperf::CheckPoint::Type::CP_ScopeEnd);
+    CHECK(buffer.data()[1].category_ == realperf::Category::CAT_MD);
+}

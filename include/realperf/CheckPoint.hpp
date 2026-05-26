@@ -163,6 +163,40 @@ private:
     std::size_t capacity_ = 0;
 };
 
+class CheckPointScope
+{
+public:
+    explicit CheckPointScope(LiteralString where, Category category = Category::CAT_Default)
+        : CheckPointScope(Recorder::instance(), where, category)
+    {
+    }
+
+    explicit CheckPointScope(Recorder& recorder, LiteralString where, Category category = Category::CAT_Default)
+        : recorder_(recorder)
+        , where_(where)
+        , category_(category)
+    {
+        recorder_.add(where_, CheckPoint::Type::CP_ScopeStart, category_);
+    }
+
+    CheckPointScope(const CheckPointScope&) = delete;
+    CheckPointScope& operator=(const CheckPointScope&) = delete;
+    CheckPointScope(CheckPointScope&&) = delete;
+    CheckPointScope& operator=(CheckPointScope&&) = delete;
+
+    ~CheckPointScope()
+    {
+        recorder_.add(where_, CheckPoint::Type::CP_ScopeEnd, category_);
+    }
+
+private:
+    Recorder& recorder_;
+    LiteralString where_;
+    Category category_;
+};
+
+#define REALPERF_DETAIL_CONCAT_IMPL(left, right) left##right
+#define REALPERF_DETAIL_CONCAT(left, right) REALPERF_DETAIL_CONCAT_IMPL(left, right)
 #define REALPERF_RECORDER (::realperf::Recorder::instance())
 #define REALPERF_RECORDER_INIT(...) (REALPERF_RECORDER.init(__VA_ARGS__))
 #define REALPERF_RECORD(...) (REALPERF_RECORDER.add(__VA_ARGS__))
@@ -171,5 +205,6 @@ private:
 #define REALPERF_RECORD_COMMIT() (REALPERF_RECORDER.commit())
 #define REALPERF_RECORD_ROLLBACK() (REALPERF_RECORDER.rollback())
 #define REALPERF_RECORD_COMMIT_IF_HAS(category) (REALPERF_RECORDER.commitIfHas(category))
+#define REALPERF_SCOPE(...) [[maybe_unused]] ::realperf::CheckPointScope REALPERF_DETAIL_CONCAT(realperf_scope_, __COUNTER__)(__VA_ARGS__)
 
 }
