@@ -53,6 +53,12 @@ struct Recorder
 
     Recorder() = default;
 
+    inline static Recorder& instance()
+    {
+        thread_local Recorder record;
+        return record;
+    }
+
     // have init so that parameters can be read later time
     void init( CheckPoint * begin, CheckPoint * end, unsigned minCount = 4, unsigned mustHaveCategories = 0)
     {
@@ -155,12 +161,15 @@ private:
     std::uint16_t mustHaveCategories_ = 0;
     CheckPoint * end_ = nullptr;
     std::size_t capacity_ = 0;
-
-    inline static Recorder& instance()
-    {
-        thread_local Recorder record;
-        return record;
-    };
-
 };
+
+#define REALPERF_RECORDER (::realperf::Recorder::instance())
+#define REALPERF_RECORDER_INIT(...) (REALPERF_RECORDER.init(__VA_ARGS__))
+#define REALPERF_RECORD(...) (REALPERF_RECORDER.add(__VA_ARGS__))
+#define REALPERF_RECORD_START(...) (REALPERF_RECORDER.start(__VA_ARGS__))
+#define REALPERF_RECORD_END(...) (REALPERF_RECORDER.end(__VA_ARGS__))
+#define REALPERF_RECORD_COMMIT() (REALPERF_RECORDER.commit())
+#define REALPERF_RECORD_ROLLBACK() (REALPERF_RECORDER.rollback())
+#define REALPERF_RECORD_COMMIT_IF_HAS(category) (REALPERF_RECORDER.commitIfHas(category))
+
 }

@@ -148,3 +148,30 @@ TEST_CASE("Recorder commit wraps at the end of the mirrored buffer")
     CHECK(buffer.data()[1].where_ == LiteralString("initial"));
     CHECK(buffer.data()[1].tick_ == 1u);
 }
+
+TEST_CASE("Recorder macros use the thread-local recorder instance")
+{
+    realperf::RingBuffer<realperf::CheckPoint> buffer(checkpointCapacity());
+    REALPERF_RECORDER_INIT(buffer.data(), buffer.data() + buffer.capacity(), 1u);
+
+    REALPERF_RECORD_START("macro start", 100u);
+    REALPERF_RECORD(125u, "macro normal", realperf::CheckPoint::Type::CP_Normal, realperf::Category::CAT_Order);
+    CHECK(REALPERF_RECORDER.has(realperf::Category::CAT_Order));
+    CHECK(REALPERF_RECORDER.totalTicks() == 25u);
+
+    REALPERF_RECORD_END("macro end", 150u);
+
+    CHECK(buffer.data()[0].where_ == LiteralString("macro start"));
+    CHECK(buffer.data()[0].type_ == realperf::CheckPoint::Type::CP_Start);
+    CHECK(buffer.data()[0].tick_ == 100u);
+    CHECK(buffer.data()[1].where_ == LiteralString("macro normal"));
+    CHECK(buffer.data()[1].category_ == realperf::Category::CAT_Order);
+    CHECK(buffer.data()[1].tick_ == 125u);
+    CHECK(buffer.data()[2].where_ == LiteralString("macro end"));
+    CHECK(buffer.data()[2].type_ == realperf::CheckPoint::Type::CP_End);
+    CHECK(buffer.data()[2].tick_ == 150u);
+
+    REALPERF_RECORD(175u, "macro rollback", realperf::CheckPoint::Type::CP_Normal, realperf::Category::CAT_MD);
+    REALPERF_RECORD_ROLLBACK();
+    CHECK_FALSE(REALPERF_RECORDER.has(realperf::Category::CAT_MD));
+}
