@@ -44,6 +44,21 @@ TEST_CASE("Recorder requires double-mapped checkpoint storage")
         std::runtime_error);
 }
 
+TEST_CASE("Recorder default constructor uses dummy checkpoint storage")
+{
+    realperf::Recorder recorder;
+
+    recorder.add(10u, "default first");
+    recorder.add(15u, "default second");
+
+    CHECK(recorder.has(realperf::Category::CAT_Default));
+    CHECK(recorder.totalTicks() == 5u);
+
+    recorder.commit();
+
+    CHECK_FALSE(recorder.has(realperf::Category::CAT_Default));
+}
+
 TEST_CASE("Recorder adds checkpoints and tracks categories")
 {
     realperf::RingBuffer<realperf::CheckPoint> buffer(checkpointCapacity());
@@ -166,12 +181,12 @@ TEST_CASE("Recorder macros use the thread-local recorder instance")
     realperf::RingBuffer<realperf::CheckPoint> buffer(checkpointCapacity());
     REALPERF_RECORDER_INIT(buffer.data(), buffer.data() + buffer.capacity(), 1u);
 
-    REALPERF_RECORD_START("macro start", 100u);
-    REALPERF_RECORD(125u, "macro normal", realperf::CheckPoint::Type::CP_Normal, realperf::Category::CAT_Order);
+    REALPERF_START("macro start", 100u);
+    REALPERF_CHECKPOINT(125u, "macro normal", realperf::CheckPoint::Type::CP_Normal, realperf::Category::CAT_Order);
     CHECK(REALPERF_RECORDER.has(realperf::Category::CAT_Order));
     CHECK(REALPERF_RECORDER.totalTicks() == 25u);
 
-    REALPERF_RECORD_END("macro end", 150u);
+    REALPERF_END("macro end", 150u);
 
     CHECK(buffer.data()[0].where_ == LiteralString("macro start"));
     CHECK(buffer.data()[0].type_ == realperf::CheckPoint::Type::CP_Start);
@@ -183,8 +198,8 @@ TEST_CASE("Recorder macros use the thread-local recorder instance")
     CHECK(buffer.data()[2].type_ == realperf::CheckPoint::Type::CP_End);
     CHECK(buffer.data()[2].tick_ == 150u);
 
-    REALPERF_RECORD(175u, "macro rollback", realperf::CheckPoint::Type::CP_Normal, realperf::Category::CAT_MD);
-    REALPERF_RECORD_ROLLBACK();
+    REALPERF_CHECKPOINT(175u, "macro rollback", realperf::CheckPoint::Type::CP_Normal, realperf::Category::CAT_MD);
+    REALPERF_ROLLBACK();
     CHECK_FALSE(REALPERF_RECORDER.has(realperf::Category::CAT_MD));
 }
 
@@ -218,7 +233,7 @@ TEST_CASE("REALPERF_SCOPE records scope checkpoints on the thread-local recorder
         REALPERF_SCOPE("macro scope", realperf::Category::CAT_MD);
     }
 
-    REALPERF_RECORD_COMMIT();
+    REALPERF_COMMIT();
 
     CHECK(buffer.data()[0].where_ == LiteralString("macro scope"));
     CHECK(buffer.data()[0].type_ == realperf::CheckPoint::Type::CP_ScopeStart);
@@ -234,7 +249,7 @@ TEST_CASE("REALPERF_EVENT records typed event checkpoints")
     REALPERF_RECORDER_INIT(buffer.data(), buffer.data() + buffer.capacity(), 1u);
 
     REALPERF_EVENT(TestEvent, 123u, "macro event", 42u, 9.75);
-    REALPERF_RECORD_COMMIT();
+    REALPERF_COMMIT();
 
     const auto& eventCheckpoint = *reinterpret_cast<const realperf::EventCheckPoint<TestEvent>*>(buffer.data());
 

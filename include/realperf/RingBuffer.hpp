@@ -7,6 +7,7 @@
 #include <limits>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 
@@ -26,26 +27,33 @@ public:
         : capacity_(capacity)
         , byteSize_(checkedByteSize(capacity))
     {
-        if (!std::has_single_bit(capacity)) {
-            throw std::invalid_argument("RingBuffer capacity must be a power of two");
-        }
-
-        const long pageSize = ::sysconf(_SC_PAGESIZE);
-        if (pageSize <= 0) {
-            throwSystemError("sysconf(_SC_PAGESIZE)");
-        }
-
-        if (byteSize_ % static_cast<std::size_t>(pageSize) != 0u) {
-            throw std::invalid_argument("RingBuffer byte size must be a multiple of the system page size");
-        }
-
-        fd_ = createBackingFile(byteSize_);
+        validateCapacity();
+        fd_ = createTemporaryBackingFile(byteSize_);
         try {
             mapTwice();
         } catch (...) {
             release();
             throw;
         }
+    }
+
+    RingBuffer(std::size_t capacity, std::string_view path)
+        : capacity_(capacity)
+        , byteSize_(checkedByteSize(capacity))
+    {
+        validateCapacity();
+        fd_ = createFileBacking(path, byteSize_);
+        try {
+            mapTwice();
+        } catch (...) {
+            release();
+            throw;
+        }
+    }
+
+    RingBuffer(std::string_view path, std::size_t capacity)
+        : RingBuffer(capacity, path)
+    {
     }
 
     RingBuffer(const RingBuffer&) = delete;
@@ -102,6 +110,22 @@ public:
     }
 
 private:
+    void validateCapacity() const
+    {
+        if (!std::has_single_bit(capacity_)) {
+            throw std::invalid_argument("RingBuffer capacity must be a power of two");
+        }
+
+        const long pageSize = ::sysconf(_SC_PAGESIZE);
+        if (pageSize <= 0) {
+            throwSystemError("sysconf(_SC_PAGESIZE)");
+        }
+
+        if (byteSize_ % static_cast<std::size_t>(pageSize) != 0u) {
+            throw std::invalid_argument("RingBuffer byte size must be a multiple of the system page size");
+        }
+    }
+
     static std::size_t checkedByteSize(std::size_t capacity)
     {
         if (capacity == 0u) {
@@ -121,7 +145,7 @@ private:
             std::string(operation) + " failed: " + std::strerror(errno));
     }
 
-    static int createBackingFile(std::size_t byteSize)
+    static int createTemporaryBackingFile(std::size_t byteSize)
     {
         char path[] = "/tmp/realperf-ring-buffer-XXXXXX";
         const int fd = ::mkstemp(path);
@@ -136,6 +160,28 @@ private:
             ::close(fd);
             errno = savedErrno;
             throwSystemError("ftruncate");
+        }
+
+        return fd;
+    }
+
+    static int createFileBacking(std::string_view path, std::size_t byteSize)
+    {
+        if (path.empty()) {
+            throw std::invalid_argument("RingBuffer backing file path must not be empty");
+        }
+
+        const std::string pathString {path};
+        const int fd = ::open(pathString.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0600);
+        if (fd == -1) {
+            throwSystemError("open backing file");
+        }
+
+        if (::ftruncate(fd, static_cast<off_t>(byteSize)) == -1) {
+            const int savedErrno = errno;
+            ::close(fd);
+            errno = savedErrno;
+            throwSystemError("ftruncate backing file");
         }
 
         return fd;

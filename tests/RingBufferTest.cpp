@@ -7,6 +7,8 @@
 #include <cstdint>
 #include <stdexcept>
 
+#include <fcntl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 namespace {
@@ -66,4 +68,38 @@ TEST_CASE("RingBuffer indexed access wraps by capacity")
     CHECK(buffer[0] == std::byte {0x33});
     CHECK(buffer[buffer.capacity()] == std::byte {0x33});
     CHECK(buffer[buffer.capacity() - 1u] == std::byte {0x22});
+}
+
+TEST_CASE("RingBuffer can use a named shared backing file")
+{
+    const std::size_t capacity = pageSize() / sizeof(std::uint32_t);
+    REQUIRE(std::has_single_bit(capacity));
+
+    char path[] = "/tmp/realperf-ring-buffer-test-XXXXXX";
+    const int tmp = ::mkstemp(path);
+    REQUIRE(tmp != -1);
+    REQUIRE(::close(tmp) == 0);
+    REQUIRE(::unlink(path) == 0);
+
+    {
+        realperf::RingBuffer<std::uint32_t> buffer(capacity, path);
+
+        buffer.data()[0] = 0x12345678u;
+        buffer.data()[capacity] = 0x90abcdefu;
+
+        struct stat info {};
+        REQUIRE(::stat(path, &info) == 0);
+        CHECK(static_cast<std::size_t>(info.st_size) == pageSize());
+        CHECK(buffer.data()[0] == 0x90abcdefu);
+    }
+
+    const int fd = ::open(path, O_RDONLY);
+    REQUIRE(fd != -1);
+
+    std::uint32_t stored {};
+    REQUIRE(::read(fd, &stored, sizeof(stored)) == static_cast<ssize_t>(sizeof(stored)));
+    CHECK(stored == 0x90abcdefu);
+
+    REQUIRE(::close(fd) == 0);
+    REQUIRE(::unlink(path) == 0);
 }

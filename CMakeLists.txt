@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.21)
 
 project(realperf VERSION 0.1.0 LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -52,15 +52,45 @@ target_link_libraries(realperf
         realperf_lib
 )
 
+add_executable(pcap_itch_gen
+    src/pcap_itch_gen.cpp
+)
+
+target_include_directories(pcap_itch_gen
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(pcap_itch_gen
+    PRIVATE
+        realperf_lib
+)
+
+add_executable(pcap_itch_print
+    src/pcap_itch_print.cpp
+)
+
+target_include_directories(pcap_itch_print
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(pcap_itch_print
+    PRIVATE
+        realperf_lib
+)
+
 include(CTest)
 if(BUILD_TESTING)
     add_executable(realperf_tests
         tests/CheckPointTest.cpp
+        tests/CmdArgsTest.cpp
         tests/DoubleMapBufferTest.cpp
         tests/LiteralStringExternalTestData.cpp
         tests/LiteralStringTest.cpp
         tests/RingBufferTest.cpp
         tests/TickClockTest.cpp
+        tests/itch5Test.cpp
         tests/perf_tests.cpp
     )
 

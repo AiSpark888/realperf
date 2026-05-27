@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
+#include "DoubleMapBuffer.hpp"
 #include "LiteralString.hpp"
 #include "TickTimer.hpp"
 #include <string>
@@ -90,7 +91,11 @@ struct alignas(16) EventCheckPoint : public CheckPoint, public Event
 struct Recorder
 {
 
-    Recorder() = default;
+    Recorder()
+    {
+        auto& buffer = dummyBuffer();
+        init(buffer.begin(), buffer.end());
+    }
 
     inline static Recorder& instance()
     {
@@ -122,6 +127,10 @@ struct Recorder
 
     Tick totalTicks() const
     {
+        if (count_ == 0) {
+            return 0;
+        }
+
         const CheckPoint& last = start_[count_ - 1];
         return last.tick_ - start_->tick_;
     }
@@ -159,6 +168,7 @@ struct Recorder
         }
     }
 
+    // starting a new recording
     void start(LiteralString where, Tick tick = TickTimer::now())
     {
         commit(); //always commit previous recording before starting a new one
@@ -214,6 +224,34 @@ struct Recorder
     }
 
 private:
+    struct DummyBuffer
+    {
+        DummyBuffer()
+            : buffer_(sizeof(CheckPoint) * 256u)
+        {
+            if (buffer_.capacity() % sizeof(CheckPoint) != 0u) {
+                throw std::runtime_error("Dummy recorder buffer capacity must align to CheckPoint size");
+            }
+        }
+
+        CheckPoint* begin()
+        {
+            return static_cast<CheckPoint*>(buffer_.buffer());
+        }
+
+        CheckPoint* end()
+        {
+            return begin() + (buffer_.capacity() / sizeof(CheckPoint));
+        }
+
+        DoubleMapBuffer buffer_;
+    };
+
+    static DummyBuffer& dummyBuffer()
+    {
+        static thread_local DummyBuffer buffer;
+        return buffer;
+    }
 
     CheckPoint * start_ = nullptr;
     std::uint16_t count_ = 0;
@@ -260,14 +298,13 @@ private:
 #define REALPERF_DETAIL_CONCAT(left, right) REALPERF_DETAIL_CONCAT_IMPL(left, right)
 #define REALPERF_RECORDER (::realperf::Recorder::instance())
 #define REALPERF_RECORDER_INIT(...) (REALPERF_RECORDER.init(__VA_ARGS__))
-#define REALPERF_RECORD(...) (REALPERF_RECORDER.add(__VA_ARGS__))
+#define REALPERF_CHECKPOINT(...) (REALPERF_RECORDER.add(__VA_ARGS__))
 #define REALPERF_EVENT(Event, ...) (REALPERF_RECORDER.addEvent<Event>(__VA_ARGS__))
-#define REALPERF_RECORD_EVENT(Event, ...) REALPERF_EVENT(Event, __VA_ARGS__)
-#define REALPERF_RECORD_START(...) (REALPERF_RECORDER.start(__VA_ARGS__))
-#define REALPERF_RECORD_END(...) (REALPERF_RECORDER.end(__VA_ARGS__))
-#define REALPERF_RECORD_COMMIT() (REALPERF_RECORDER.commit())
-#define REALPERF_RECORD_ROLLBACK() (REALPERF_RECORDER.rollback())
-#define REALPERF_RECORD_COMMIT_IF_HAS(category) (REALPERF_RECORDER.commitIfHas(category))
+#define REALPERF_START(...) (REALPERF_RECORDER.start(__VA_ARGS__))
+#define REALPERF_END(...) (REALPERF_RECORDER.end(__VA_ARGS__))
+#define REALPERF_COMMIT() (REALPERF_RECORDER.commit())
+#define REALPERF_ROLLBACK() (REALPERF_RECORDER.rollback())
+#define REALPERF_COMMIT_IF_HAS(category) (REALPERF_RECORDER.commitIfHas(category))
 #define REALPERF_SCOPE(...) [[maybe_unused]] ::realperf::CheckPointScope REALPERF_DETAIL_CONCAT(realperf_scope_, __COUNTER__)(__VA_ARGS__)
 
 }
