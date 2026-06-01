@@ -16,8 +16,21 @@
 
 #include "realperf/CheckPoint.hpp"
 #include "realperf/CmdArgs.hpp"
+#include "realperf/LiteralString.hpp"
 #include "realperf/RingBuffer.hpp"
 #include "realperf/itch5.hpp"
+
+REALPERF_LITERAL_STRING(pcap_itch_gen_parse_ipv4_literal, "pcap_itch_gen::parse_ipv4")
+REALPERF_LITERAL_STRING(pcap_itch_gen_internet_checksum_literal, "pcap_itch_gen::internet_checksum")
+REALPERF_LITERAL_STRING(pcap_itch_gen_make_itch_message_literal, "pcap_itch_gen::make_itch_message")
+REALPERF_LITERAL_STRING(pcap_itch_gen_make_payload_literal, "pcap_itch_gen::make_payload")
+REALPERF_LITERAL_STRING(pcap_itch_gen_make_packet_literal, "pcap_itch_gen::make_packet")
+REALPERF_LITERAL_STRING(pcap_itch_gen_make_packet_ip_header_literal, "pcap_itch_gen::make_packet:ip_header")
+REALPERF_LITERAL_STRING(pcap_itch_gen_make_packet_checksum_literal, "pcap_itch_gen::make_packet:checksum")
+REALPERF_LITERAL_STRING(pcap_itch_gen_make_packet_copy_payload_literal, "pcap_itch_gen::make_packet:copy_payload")
+REALPERF_LITERAL_STRING(pcap_itch_gen_write_pcap_global_header_literal, "pcap_itch_gen::write_pcap_global_header")
+REALPERF_LITERAL_STRING(pcap_itch_gen_write_pcap_packet_literal, "pcap_itch_gen::write_pcap_packet")
+REALPERF_LITERAL_STRING(pcap_itch_gen_packet_loop_literal, "pcap_itch_gen::packet_loop")
 
 namespace {
 
@@ -42,6 +55,7 @@ struct Options {
     std::uint32_t seed = 1;
     std::string checkpoint_file;
     std::size_t checkpoint_capacity = kDefaultCheckpointCapacity;
+    bool dump_literals = false;
 };
 
 [[noreturn]] void usage(std::string_view error = {})
@@ -67,6 +81,7 @@ struct Options {
         << "                           file-backed checkpoint ring buffer path\n"
         << "      --checkpoint-capacity N\n"
         << "                           checkpoint record capacity (default: 1048576)\n"
+        << "      --dump-literals      dump registered literal string fingerprints\n"
         << "  -h, --help              show this help\n\n"
         << "ITCH5 mode emits UDP packets with a MoldUDP64 header followed by one\n"
         << "length-prefixed Nasdaq ITCH 5.0-style message per packet. Extra bytes are\n"
@@ -92,7 +107,7 @@ Options parse_options(int argc, char** argv)
     Options options;
     realperf::CmdArgs args(argc, argv);
 
-    static constexpr std::array<std::string_view, 18> known_options{
+    static constexpr std::array<std::string_view, 19> known_options{
         "h",
         "help",
         "o",
@@ -111,6 +126,7 @@ Options parse_options(int argc, char** argv)
         "seed",
         "checkpoint-file",
         "checkpoint-capacity",
+        "dump-literals",
     };
 
     for (const auto& [name, value] : args.values()) {
@@ -161,8 +177,9 @@ Options parse_options(int argc, char** argv)
     if (args.has("checkpoint-capacity")) {
         options.checkpoint_capacity = args.as<std::size_t>("checkpoint-capacity");
     }
+    options.dump_literals = args.has("dump-literals");
 
-    if (options.count == 0) {
+    if (!options.dump_literals && options.count == 0) {
         throw std::runtime_error("--count must be greater than zero");
     }
     if (options.mode != "raw" && options.mode != "itch5") {
@@ -410,6 +427,11 @@ int main(int argc, char** argv)
 {
     try {
         const auto options = parse_options(argc, argv);
+        if (options.dump_literals) {
+            realperf::LiteralString::dumpLiteralStrings(std::cout);
+            return 0;
+        }
+
         [[maybe_unused]] auto checkpoint_buffer = init_checkpoint_recorder(options);
         const auto src_ip = parse_ipv4(options.src_ip);
         const auto dst_ip = parse_ipv4(options.dst_ip);

@@ -80,6 +80,34 @@ target_link_libraries(pcap_itch_print
         realperf_lib
 )
 
+add_executable(checkpoint_print
+    src/checkpoint_print.cpp
+)
+
+target_include_directories(checkpoint_print
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(checkpoint_print
+    PRIVATE
+        realperf_lib
+)
+
+add_executable(checkpoint_server
+    src/checkpoint_server.cpp
+)
+
+target_include_directories(checkpoint_server
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(checkpoint_server
+    PRIVATE
+        realperf_lib
+)
+
 include(CTest)
 if(BUILD_TESTING)
     add_executable(realperf_tests

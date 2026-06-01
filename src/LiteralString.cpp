@@ -36,7 +36,7 @@ std::string_view literal_string_text(LiteralString literal)
 void LiteralString::dumpLiteralStrings(std::ostream& out)
 {
     out << "literal,fingerprint\n";
-    for (const LiteralStringEntry& entry : literal_string_entries()) {
+        for (const LiteralStringEntry& entry : literal_string_entries()) {
         out << entry.text << ',' << entry.literal.value() << '\n';
     }
 }

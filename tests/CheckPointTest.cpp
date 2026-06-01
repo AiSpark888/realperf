@@ -93,6 +93,26 @@ TEST_CASE("Recorder adds checkpoints and tracks categories")
     CHECK(buffer.data()[2].tick_ == 40u);
 }
 
+TEST_CASE("Recorder start and end overloads accept categories")
+{
+    realperf::RingBuffer<realperf::CheckPoint> buffer(checkpointCapacity());
+    realperf::Recorder recorder;
+    recorder.init(buffer.data(), buffer.data() + buffer.capacity(), 1u);
+
+    recorder.start("category start", realperf::Category::CAT_MD, 10u);
+    recorder.end("category end", realperf::Category::CAT_Order, 20u);
+
+    CHECK(buffer.data()[0].where_ == LiteralString("category start"));
+    CHECK(buffer.data()[0].type_ == realperf::CheckPoint::Type::CP_Start);
+    CHECK(buffer.data()[0].category_ == realperf::Category::CAT_MD);
+    CHECK(buffer.data()[0].tick_ == 10u);
+
+    CHECK(buffer.data()[1].where_ == LiteralString("category end"));
+    CHECK(buffer.data()[1].type_ == realperf::CheckPoint::Type::CP_End);
+    CHECK(buffer.data()[1].category_ == realperf::Category::CAT_Order);
+    CHECK(buffer.data()[1].tick_ == 20u);
+}
+
 TEST_CASE("Recorder rollback discards pending checkpoints")
 {
     realperf::RingBuffer<realperf::CheckPoint> buffer(checkpointCapacity());

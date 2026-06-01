@@ -175,9 +175,21 @@ struct Recorder
         add(tick, where, CheckPoint::Type::CP_Start);
     }
 
+    void start(LiteralString where, Category category, Tick tick = TickTimer::now())
+    {
+        commit(); //always commit previous recording before starting a new one
+        add(tick, where, CheckPoint::Type::CP_Start, category);
+    }
+
     void end(LiteralString where, Tick tick = TickTimer::now())
     {
         add(tick, where, CheckPoint::Type::CP_End);
+        commit();
+    }
+
+    void end(LiteralString where, Category category, Tick tick = TickTimer::now())
+    {
+        add(tick, where, CheckPoint::Type::CP_End, category);
         commit();
     }
 
